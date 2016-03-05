@@ -1,0 +1,267 @@
+#' Boosted regression predictions of nutrient mass balances with spatial covariates
+#' EthioSIS Mehlich-3 extractable P,K,S,Ca & Mg data from 255 Woredas
+#' M. Walsh, December 2015
+
+# Required packages
+# install.packages(c("devtools","caret","doParallel","plyr","gbm")), dependencies=TRUE)
+require(devtools)
+require(caret)
+require(doParallel)
+require(plyr)
+require(gbm)
+require(raster)
+
+# Data setup --------------------------------------------------------------
+# SourceURL <- "https://raw.githubusercontent.com/mgwalsh/Ethiopia/blob/master/ETM3_setup.R"
+# source_url(SourceURL)
+setwd("D:/2_ATA/0_Soil_Fertility_Status/2_Amhara/2016_0229")
+source("0229_ETM3_Setup.R")
+
+# Mehlich-3 nutrient mass balance variables
+V0 <- EthM3_cal$V0
+V1 <- EthM3_cal$V1
+V2 <- EthM3_cal$V2
+V3 <- EthM3_cal$V3
+V4 <- EthM3_cal$V4
+V5 <- EthM3_cal$V5
+V6 <- EthM3_cal$V6
+V7 <- EthM3_cal$V7
+V8 <- EthM3_cal$V8
+V9 <- EthM3_cal$V9
+V10 <- EthM3_cal$V10
+V11 <- EthM3_cal$V11
+
+# Gridded covariates
+names(EthM3)
+GRIDSc <- EthM3_cal[c(32:59)] ## Gridded covariates for model calibration from 273 Woredas
+GRIDSv <- EthM3_val[c(32:59)] ## Same for 69 randomly selected validation Woredas
+
+# GBM models --------------------------------------------------------------
+# Start foreach to parallelize model fitting
+mc <- makeCluster(detectCores())
+registerDoParallel(mc)
+
+# Control setup
+set.seed(1385321)
+tc <- trainControl(method = "cv", number=10)
+
+# V0 = ilr [C, N, P, K, Ca, Mg, S, B, Cu, Zn, Mn, Fe | Fv]
+V0.gbm <- train(GRIDSc, V0, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V0.gbm)
+###v0.imp <- varImp(V0.gbm)
+###plot(v0.imp, top=28)
+
+# V1 = ilr [B, C, N, P, K, S, Ca, Mg | Cu, Zn, Mn, Fe]
+V1.gbm <- train(GRIDSc, V1, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V1.gbm)
+
+# V2 = ilr [P, K, S, Ca, Mg | B, C, N ]
+V2.gbm <- train(GRIDSc, V2, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V2.gbm)
+
+# V3 = ilr [P, S | K, Ca, Mg]
+V3.gbm <- train(GRIDSc, V3, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V3.gbm)
+###v3.imp <- varImp(V3.gbm)
+###plot(v3.imp, top=28)
+
+# V4 = ilr [K | Ca, Mg]
+V4.gbm <- train(GRIDSc, V4, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V4.gbm)
+###v4.imp <- varImp(V4.gbm)
+###plot(v4.imp, top=28)
+
+# V5 = ilr [P | S]
+V5.gbm <- train(GRIDSc, V5, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V5.gbm)
+###v5.imp <- varImp(V5.gbm)
+###plot(v5.imp, top=28)
+
+# V6 = ilr [Ca | Mg]
+V6.gbm <- train(GRIDSc, V6, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V6.gbm)
+###v6.imp <- varImp(V6.gbm)
+###plot(v6.imp, top=28)
+
+# V7 = ilr [B | C, N]
+V7.gbm <- train(GRIDSc, V7, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V7.gbm)
+
+# V8 = ilr [C | N]
+V8.gbm <- train(GRIDSc, V8, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V8.gbm)
+
+# V9 = ilr [Cu, Zn | Mn, Fe]
+V9.gbm <- train(GRIDSc, V9, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V9.gbm)
+
+# V10 = ilr [Mn | Fe]
+V10.gbm <- train(GRIDSc, V10, 
+                method = "gbm", 
+                preProc = c("center", "scale"),
+                trControl = tc,
+                tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                       .interaction.depth = 3,
+                                       .shrinkage = 0.1,
+                                       .n.minobsinnode = 100))
+print(V10.gbm)
+
+# V11 = ilr [Cu | Zn]
+V11.gbm <- train(GRIDSc, V11, 
+                 method = "gbm", 
+                 preProc = c("center", "scale"),
+                 trControl = tc,
+                 tuneGrid = expand.grid(.n.trees=seq(50,500,by=50), 
+                                        .interaction.depth = 3,
+                                        .shrinkage = 0.1,
+                                        .n.minobsinnode = 100))
+print(V11.gbm)
+
+stopCluster(mc)
+
+# Test set predictions ----------------------------------------------------
+V0_gbm <- predict(V0.gbm, GRIDSv)
+V1_gbm <- predict(V1.gbm, GRIDSv)
+V2_gbm <- predict(V2.gbm, GRIDSv)
+V3_gbm <- predict(V3.gbm, GRIDSv)
+V4_gbm <- predict(V4.gbm, GRIDSv)
+V5_gbm <- predict(V5.gbm, GRIDSv)
+V6_gbm <- predict(V6.gbm, GRIDSv)
+V7_gbm <- predict(V7.gbm, GRIDSv)
+V8_gbm <- predict(V8.gbm, GRIDSv)
+V9_gbm <- predict(V9.gbm, GRIDSv)
+V10_gbm <- predict(V10.gbm, GRIDSv)
+V11_gbm <- predict(V11.gbm, GRIDSv)
+
+pred <- cbind.data.frame(V0_gbm,V1_gbm,V2_gbm,V3_gbm,V4_gbm,V5_gbm,V6_gbm,V7_gbm,V8_gbm,V9_gbm,V10_gbm,V11_gbm)
+head(pred)
+
+test <- EthM3_val[c("PID","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11")]
+head(test)
+
+gbm_eval <- cbind(test, pred)
+head(gbm_eval)
+
+x11()
+par(mfrow=c(3,4))
+
+plot(V0 ~ V0_gbm, gbm_eval)
+plot(V1 ~ V1_gbm, gbm_eval)
+plot(V2 ~ V2_gbm, gbm_eval)
+plot(V3 ~ V3_gbm, gbm_eval)
+plot(V4 ~ V4_gbm, gbm_eval)
+plot(V5 ~ V5_gbm, gbm_eval)
+plot(V6 ~ V6_gbm, gbm_eval)
+plot(V7 ~ V7_gbm, gbm_eval)
+plot(V8 ~ V8_gbm, gbm_eval)
+plot(V9 ~ V9_gbm, gbm_eval)
+plot(V10 ~ V10_gbm, gbm_eval)
+plot(V11 ~ V11_gbm, gbm_eval)
+
+# Gridded predictions -----------------------------------------------------
+V0_gbm <- predict(grids, V0.gbm)
+V1_gbm <- predict(grids, V1.gbm)
+V2_gbm <- predict(grids, V2.gbm)
+V3_gbm <- predict(grids, V3.gbm)
+V4_gbm <- predict(grids, V4.gbm)
+V5_gbm <- predict(grids, V5.gbm)
+V6_gbm <- predict(grids, V6.gbm)
+V7_gbm <- predict(grids, V7.gbm)
+V8_gbm <- predict(grids, V8.gbm)
+V9_gbm <- predict(grids, V9.gbm)
+V10_gbm <- predict(grids, V10.gbm)
+V11_gbm <- predict(grids, V11.gbm)
+
+###gbm_pred <- stack(V0_gbm,V3_gbm,V4_gbm,V5_gbm,V6_gbm)
+###names(gbm_pred) <- c("V0_gbm","V3_gbm","V4_gbm","V5_gbm","V6_gbm")
+###plot(gbm_pred)
+
+# Export Gtif's -----------------------------------------------------------
+# Create a "EthM3_Results" folder in current working directory
+dir.create("EthM3_Results", showWarnings=F)
+
+# Export Gtif's to "./EthM3_results"
+###writeRaster(gbm_pred, filename="./EthM3_results/gbm_preds.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+
+writeRaster(V0_gbm, filename="./EthM3_Results/V0_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V1_gbm, filename="./EthM3_Results/V1_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V2_gbm, filename="./EthM3_Results/V2_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V3_gbm, filename="./EthM3_Results/V3_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V4_gbm, filename="./EthM3_Results/V4_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V5_gbm, filename="./EthM3_Results/V5_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V6_gbm, filename="./EthM3_Results/V6_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V7_gbm, filename="./EthM3_Results/V7_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V8_gbm, filename="./EthM3_Results/V8_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V9_gbm, filename="./EthM3_Results/V9_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V10_gbm, filename="./EthM3_Results/V10_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(V11_gbm, filename="./EthM3_Results/V11_gbm.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
