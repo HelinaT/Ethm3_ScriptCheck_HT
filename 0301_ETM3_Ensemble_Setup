@@ -1,0 +1,99 @@
+#' EthioSIS Mehlich-3 nutrient and nutrient mass balance data setup
+#' M. Walsh, December 2015
+
+# install.packages(c("downloader","compositions","raster","rgdal"), dependencies=T)
+require(downloader)
+require(compositions)
+require(rgdal)
+require(raster)
+
+# Data setup --------------------------------------------------------------
+# Create a data folder in your current working directory
+setwd("D:/2_ATA/0_Soil_Fertility_Status/2_Amhara/2016_0229")
+dir.create("EthM3_Ensemble", showWarnings=T)
+
+# Download prediction grids
+###download("https://www.dropbox.com/s/ihpq7zw4pfl1pko/ETM3_preds.zip?dl=0", "ET_preds.zip", mode="wb")
+###unzip("ET_preds.zip", overwrite=T)
+glist <- list.files(path="EthM3_Results", pattern="tif", full.names=T) 
+grids <- stack(glist)
+plot(grids)
+
+# Copy EthioSIS survey data into ./ETM3_data ... working directory
+###unzip("ET_Mehlich3.zip", overwrite=T) ## this zip file needs to be copied into your working directory
+prof <- read.table("./EthM3_Data/Profiles.csv", header=T, sep=",") ## survey locations and Woreda names
+head(prof)
+
+samp <- read.table("./EthM3_Data/Samples.csv", header=T, sep=",") ## sample Mehlich-3 data
+head(samp)
+
+EthM3 <- merge(prof, samp, by="PID")
+head(EthM3)
+
+# Compositional analysis setup --------------------------------------------
+vars <- c("PID","Woreda","Lat","Lon","B", "C", "N", "P", "K", "S", "Ca", "Mg", "Cu", "Zn", "Mn", "Fe" )
+EthNB <- na.omit(EthM3[vars])
+fpart <- c("B", "C", "N", "P", "K", "S", "Ca", "Mg", "Cu", "Zn", "Mn", "Fe") ## All values in mg/kg
+EthNB$Fv <- 1000000-rowSums(EthNB[fpart]) ## calculates "fill value" (Fv), in mg/kg soil
+cpart <- c("B", "C", "N", "P", "K", "S", "Ca", "Mg", "Cu", "Zn", "Mn", "Fe","Fv")
+
+# Sequential binary partion & isometric log ratio (ilr) transform
+cdata <- acomp(EthNB[cpart])
+bpart <- t(matrix(c( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,-1,
+                    -1,-1,-1,-1,-1,-1,-1,-1, 1, 1, 1, 1, 0,
+                    -1,-1,-1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
+                     0, 0, 0, 1,-1, 1,-1,-1, 0, 0, 0, 0, 0,
+                     0, 0, 0, 0, 1, 0,-1,-1, 0, 0, 0, 0, 0,
+                     0, 0, 0, 1, 0,-1, 0, 0, 0, 0, 0, 0, 0,
+                     0, 0, 0, 0, 0, 0, 1,-1, 0, 0, 0, 0, 0,
+                     1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                     0, 1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                     0, 0, 0, 0, 0, 0, 0, 0, 1, 1,-1,-1, 0,
+                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,-1, 0,
+                     0, 0, 0, 0, 0, 0, 0, 0, 1,-1, 0, 0, 0),ncol=13, nrow=12, byrow=T))
+CoDaDendrogram(X=acomp(cdata), signary=bpart) ## mass balance mobile graph  			
+idata <- as.data.frame(ilr(cdata, V=bpart))
+head(idata)
+
+colnames(idata) <- c("V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11") ## variable names align w AfSIS standard
+head(idata)
+
+EthNB <- cbind(EthNB, idata)
+head(EthNB)
+
+# Overlay with gridded predictions ---------------------------------------
+# Project survey coords to grid CRS
+EthNB.proj <- as.data.frame(project(cbind(EthNB$Lon, EthNB$Lat), "+proj=laea +ellps=WGS84 +lon_0=20 +lat_0=5 +units=m +no_defs"))
+head(EthNB.proj)
+
+colnames(EthNB.proj) <- c("x","y") ## laea coordinates
+head(EthNB.proj)
+
+EthNB <- cbind(EthNB, EthNB.proj)
+head(EthNB)
+
+coordinates(EthNB) <- ~x+y
+projection(EthNB) <- projection(grids)
+
+# Extract gridded variables at survey locations
+EthNBgrid <- extract(grids, EthNB)
+head(EthNBgrid)
+
+EthM3 <- as.data.frame(EthNB)
+EthM3 <- cbind.data.frame(EthM3, EthNBgrid)
+head(EthM3)
+
+EthM3 <- unique(na.omit(EthM3)) ## includes only unique & complete records
+
+# Training/Test set partition ---------------------------------------------
+Woreda <- names(table(EthM3$Woreda))
+set.seed(5321) ## set.seed to replicate previous train/test set partition
+
+train <- sample(Woreda, 0.8*length(Woreda)) ## 80% sample of Woredas for model training
+EthM3_cal <- EthM3[ EthM3$Woreda%in%train, ] ## Calibration data
+EthM3_val <- EthM3[!EthM3$Woreda%in%train, ] ## Validation data
+
+# Write data files --------------------------------------------------------
+write.csv(EthM3, "./EthM3_Ensemble/EthM3.csv", row.names=F)
+write.csv(EthM3_cal, "./EthM3_Ensemble/EthM3_Cal.csv", row.names=F)
+write.csv(EthM3_val, "./EthM3_Ensemble/EthM3_Val.csv", row.names=F)
