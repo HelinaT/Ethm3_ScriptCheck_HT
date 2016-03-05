@@ -1,0 +1,256 @@
+#' Predictions of potentially P,K and/or S deficient soils
+#' EthioSIS Mehlich-3 extractable P,K & S measurements from 342 Woredas
+#' M. Walsh, December 2015
+
+# Required packages
+# install.packages(c("devtools","caret","doParallel","glmnet","dismo","raster")), dependencies=TRUE)
+require(devtools)
+require(caret)
+require(doParallel)
+require(glmnet)
+require(dismo)
+require(raster)
+
+# Data setup --------------------------------------------------------------
+# Look at & run this 1rst: https://github.com/mgwalsh/Ethiopia/blob/master/ETM3_ensemble_setup.R
+# SourceURL <- "https://raw.githubusercontent.com/mgwalsh/Ethiopia/blob/master/ETM3_ensemble_setup.R"
+# source_url(SourceURL)
+setwd("D:/2_ATA/0_Soil_Fertility_Status/2_Amhara/2016_0229")
+source("0301_ETM3_Ensemble_Setup.R")
+
+# Specify critical levels in ppm 
+# P-test
+Pcut <- 30
+Pcal <- as.factor(ifelse(EthM3_cal$P < Pcut, "Y", "N")) ## Calibration data from 273 Woredas
+Pval <- as.factor(ifelse(EthM3_val$P < Pcut, "Y", "N")) ## Validation data for 69 randomly selected Woredas
+head(Pcal)
+head(Pval)
+
+# K-test
+Kcut <- 190
+Kcal <- as.factor(ifelse(EthM3_cal$K < Kcut, "Y", "N")) ## Calibration data from 273 Woredas
+Kval <- as.factor(ifelse(EthM3_val$K < Kcut, "Y", "N")) ## Validation data for 69 randomly selected Woredas
+head(Kcut)
+head(Kval)
+
+# S-test
+Scut <- 20
+Scal <- as.factor(ifelse(EthM3_cal$S < Scut, "Y", "N")) ## Calibration data from 273 Woredas
+Sval <- as.factor(ifelse(EthM3_val$S < Scut, "Y", "N")) ## Validation data for 69 randomly selected Woredas
+head(Scal)
+head(Sval)
+
+# B-test
+Bcut <- 0.8
+Bcal <- as.factor(ifelse(EthM3_cal$B < Bcut, "Y", "N")) ## Calibration data from 273 Woredas
+Bval <- as.factor(ifelse(EthM3_val$B < Bcut, "Y", "N")) ## Validation data for 69 randomly selected Woredas
+head(Bcal)
+head(Bval)
+
+# Zn-test
+Zncut <- 1.5
+Zncal <- as.factor(ifelse(EthM3_cal$Zn < Zncut, "Y", "N")) ## Calibration data from 273 Woredas
+Znval <- as.factor(ifelse(EthM3_val$Zn < Zncut, "Y", "N")) ## Validation data for 69 randomly selected Woredas
+head(Zncal)
+head(Znval)
+
+# Cu-test
+Cucut <- 0.9
+Cucal <- as.factor(ifelse(EthM3_cal$Cu < Cucut, "Y", "N")) ## Calibration data from 273 Woredas
+Cuval <- as.factor(ifelse(EthM3_val$Cu < Cucut, "Y", "N")) ## Validation data for 69 randomly selected Woredas
+
+# Fe-test
+Fecut <- 80
+Fecal <- as.factor(ifelse(EthM3_cal$Fe < Fecut, "Y", "N")) ## Calibration data from 273 Woredas
+Feval <- as.factor(ifelse(EthM3_val$Fe < Fecut, "Y", "N")) ## Validation data for 69 randomly selected Woredas
+
+# Gridded covariates
+names(EthM3)
+GRIDSc <- EthM3_cal[c(32:55)] ## Gridded covariates for model calibration from 273 Woredas
+GRIDSv <- EthM3_val[c(32:55)] ## Same for 69 randomly selected validation Woredas
+
+# Model calibration -------------------------------------------------------
+# Start foreach to parallelize model fitting
+mc <- makeCluster(detectCores())
+registerDoParallel(mc)
+
+# Control setup
+set.seed(1385321)
+tc <- trainControl(method = "repeatedcv", number = 10, repeats = 5, allowParallel = TRUE)
+
+# P-test
+P.glm <- train(GRIDSc, Pcal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# K-test
+K.glm <- train(GRIDSc, Kcal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# S-test
+S.glm <- train(GRIDSc, Scal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# B-test
+B.glm <- train(GRIDSc, Bcal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# Zn-test
+Zn.glm <- train(GRIDSc, Zncal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# Cu-test
+Cu.glm <- train(GRIDSc, Cucal, method = "glmnet", 
+                preProc = c("center", "scale"),
+                trControl = tc)
+
+# Fe-test
+Fe.glm <- train(GRIDSc, Fecal, method = "glmnet", 
+                preProc = c("center", "scale"),
+                trControl = tc)
+
+# Stop parallelize
+stopCluster(mc)
+
+# Model validation --------------------------------------------------------
+# P-test
+P_pred <- predict(P.glm, GRIDSv, type = 'prob')
+head(P_pred)
+
+P_test <- cbind(Pval, P_pred)
+head(P_test)
+
+P_tpos <- subset(P_test, Pval=="Y", select=c(Y))
+head(P_tpos)
+
+P_tneg <- subset(P_test, Pval=="N", select=c(Y))
+head(P_tneg)
+
+P_eval <- evaluate(p=P_tpos[,1], a=P_tneg[,1]) ## calculate ROC's on test set <dismo>
+
+plot(P_eval, 'ROC') ## plot ROC curve
+P_thld <- threshold(P_eval, 'spec_sens') ## TPR+TNR threshold for classification
+
+# K-test
+K_pred <- predict(K.glm, GRIDSv, type = 'prob')
+head(K_pred)
+
+K_test <- cbind(Kval, K_pred)
+head(K_test)
+
+K_tpos <- subset(K_test, Kval=="Y", select=c(Y))
+head(K_tpos)
+
+K_tneg <- subset(K_test, Kval=="N", select=c(Y))
+head(K_tneg)
+
+K_eval <- evaluate(p=K_tpos[,1], a=K_tneg[,1]) ## calculate ROC's on test set <dismo>
+plot(K_eval, 'ROC') ## plot ROC curve
+K_thld <- threshold(K_eval, 'spec_sens') ## TPR+TNR threshold for classification
+
+# S-test
+S_pred <- predict(S.glm, GRIDSv, type = 'prob')
+S_test <- cbind(Sval, S_pred)
+S_tpos <- subset(S_test, Sval=="Y", select=c(Y))
+S_tneg <- subset(S_test, Sval=="N", select=c(Y))
+S_eval <- evaluate(p=S_tpos[,1], a=S_tneg[,1]) ## calculate ROC's on test set <dismo>
+plot(S_eval, 'ROC') ## plot ROC curve
+S_thld <- threshold(S_eval, 'spec_sens') ## TPR+TNR threshold for classification
+
+# B-test
+B_pred <- predict(B.glm, GRIDSv, type = 'prob')
+B_test <- cbind(Bval, B_pred)
+B_tpos <- subset(B_test, Bval=="Y", select=c(Y))
+B_tneg <- subset(B_test, Bval=="N", select=c(Y))
+B_eval <- evaluate(p=B_tpos[,1], a=B_tneg[,1]) ## calculate ROC's on test set <dismo>
+plot(B_eval, 'ROC') ## plot ROC curve
+B_thld <- threshold(B_eval, 'spec_sens') ## TPR+TNR threshold for classification
+
+# Zn-test
+Zn_pred <- predict(Zn.glm, GRIDSv, type = 'prob')
+Zn_test <- cbind(Znval, Zn_pred)
+Zn_tpos <- subset(Zn_test, Znval=="Y", select=c(Y))
+Zn_tneg <- subset(Zn_test, Znval=="N", select=c(Y))
+Zn_eval <- evaluate(p=Zn_tpos[,1], a=Zn_tneg[,1]) ## calculate ROC's on test set <dismo>
+plot(Zn_eval, 'ROC') ## plot ROC curve
+Zn_thld <- threshold(Zn_eval, 'spec_sens') ## TPR+TNR threshold for classification
+
+# Cu-test
+Cu_pred <- predict(Cu.glm, GRIDSv, type = 'prob')
+Cu_test <- cbind(Cuval, Cu_pred)
+Cu_tpos <- subset(Cu_test, Cuval=="Y", select=c(Y))
+Cu_tneg <- subset(Cu_test, Cuval=="N", select=c(Y))
+Cu_eval <- evaluate(p=Cu_tpos[,1], a=Cu_tneg[,1]) ## calculate ROC's on test set <dismo>
+plot(Cu_eval, 'ROC') ## plot ROC curve
+Cu_thld <- threshold(Cu_eval, 'spec_sens') ## TPR+TNR threshold for classification
+
+# Fe-test
+Fe_pred <- predict(Fe.glm, GRIDSv, type = 'prob')
+Fe_test <- cbind(Feval, Fe_pred)
+Fe_tpos <- subset(Fe_test, Feval=="Y", select=c(Y))
+Fe_tneg <- subset(Fe_test, Feval=="N", select=c(Y))
+Fe_eval <- evaluate(p=Fe_tpos[,1], a=Fe_tneg[,1]) ## calculate ROC's on test set <dismo>
+plot(Fe_eval, 'ROC') ## plot ROC curve
+Fe_thld <- threshold(Fe_eval, 'spec_sens') ## TPR+TNR threshold for classification
+
+# Spatial predictions -----------------------------------------------------
+P_prob <- predict(grids, P.glm, type = 'prob')
+P_mask <- 1-P_prob > P_thld
+
+K_prob <- predict(grids, K.glm, type = 'prob')
+K_mask <- 1-K_prob > K_thld
+
+S_prob <- predict(grids, S.glm, type = 'prob')
+S_mask <- 1-S_prob > S_thld
+
+B_prob <- predict(grids, B.glm, type = 'prob')
+B_mask <- 1-B_prob > B_thld
+
+Zn_prob <- predict(grids, Zn.glm, type = 'prob')
+Zn_mask <- 1-Zn_prob > Zn_thld
+
+Cu_prob <- predict(grids, Cu.glm, type = 'prob')
+Cu_mask <- 1-Cu_prob > Cu_thld
+
+Fe_prob <- predict(grids, Fe.glm, type = 'prob')
+Fe_mask <- 1-Fe_prob > Fe_thld
+
+###crit_pred <- stack(1-P_prob, 1-K_prob, 1-S_prob)
+###crit_mask <- stack(P_mask, K_mask, S_mask)
+###names(crit_pred) <- c("P_prob","K_prob","S_prob")
+###names(crit_mask) <- c("P_mask","K_mask","S_mask")
+###plot(crit_pred, axes = F)
+###plot(crit_mask, legend = F, axes = F)
+
+# Export Gtif's -----------------------------------------------------------
+# Create a "Pred_Mask" folder in current working directory
+dir.create("Pred_Mask", showWarnings=F)
+
+# Export Gtif's to "./EthM3_results"
+###writeRaster(crit_pred, filename="./EthM3_results/crit_pred.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+###writeRaster(crit_mask, filename="./EthM3_results/crit_mask.tif", datatype="INT1U", options="INTERLEAVE=BAND", overwrite=T)
+
+writeRaster(1-P_prob, filename="./Pred_Mask/P_pred.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(P_mask, filename="./Pred_Mask/P_mask.tif", datatype="INT1U", options="INTERLEAVE=BAND", overwrite=T)
+
+writeRaster(1-K_prob, filename="./Pred_Mask/K_pred.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(K_mask, filename="./Pred_Mask/K_mask.tif", datatype="INT1U", options="INTERLEAVE=BAND", overwrite=T)
+
+writeRaster(1-S_prob, filename="./Pred_Mask/S_pred.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(S_mask, filename="./Pred_Mask/S_mask.tif", datatype="INT1U", options="INTERLEAVE=BAND", overwrite=T)
+
+writeRaster(1-B_prob, filename="./Pred_Mask/B_pred.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(B_mask, filename="./Pred_Mask/B_mask.tif", datatype="INT1U", options="INTERLEAVE=BAND", overwrite=T)
+
+writeRaster(1-Zn_prob, filename="./Pred_Mask/Zn_pred.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(Zn_mask, filename="./Pred_Mask/Zn_mask.tif", datatype="INT1U", options="INTERLEAVE=BAND", overwrite=T)
+
+writeRaster(1-Cu_prob, filename="./Pred_Mask/Cu_pred.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(Cu_mask, filename="./Pred_Mask/Cu_mask.tif", datatype="INT1U", options="INTERLEAVE=BAND", overwrite=T)
+
+writeRaster(1-Fe_prob, filename="./Pred_Mask/Fe_pred.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(Fe_mask, filename="./Pred_Mask/Fe_mask.tif", datatype="INT1U", options="INTERLEAVE=BAND", overwrite=T)
