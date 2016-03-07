@@ -1,0 +1,249 @@
+#' Predictions of potentially P,K and/or S deficient soils
+#' EthioSIS Mehlich-3 extractable P,K & S measurements from 255 Woredas
+#' M. Walsh, December 2015
+
+# Required packages
+# install.packages(c("devtools","caret","doParallel","glmnet","dismo","raster")), dependencies=TRUE)
+require(devtools)
+require(caret)
+require(doParallel)
+require(glmnet)
+require(dismo)
+require(raster)
+
+# Data setup --------------------------------------------------------------
+# Look at & run this 1rst: https://github.com/mgwalsh/Ethiopia/blob/master/ETM3_ensemble_setup.R
+# SourceURL <- "https://raw.githubusercontent.com/mgwalsh/Ethiopia/blob/master/ETM3_ensemble_setup.R"
+# source_url(SourceURL)
+
+# Specify critical levels in ppm 
+# B-test
+Bcut <- 0.8
+Bcal <- as.factor(ifelse(etm3_cal$B < Bcut, "Y", "N")) ## calibration data from 204 Woredas
+Bval <- as.factor(ifelse(etm3_val$B < Bcut, "Y", "N")) ## validation data for 51 randomly selected Woredas
+
+# P-test
+Pcut <- 30
+Pcal <- as.factor(ifelse(etm3_cal$P < Pcut, "Y", "N")) ## calibration data from 204 Woredas
+Pval <- as.factor(ifelse(etm3_val$P < Pcut, "Y", "N")) ## validation data for 51 randomly selected Woredas
+
+# K-test
+Kcut <- 190
+Kcal <- as.factor(ifelse(etm3_cal$K < Kcut, "Y", "N")) ## calibration data from 204 Woredas
+Kval <- as.factor(ifelse(etm3_val$K < Kcut, "Y", "N")) ## validation data for 51 randomly selected Woredas
+
+# S-test
+Scut <- 20
+Scal <- as.factor(ifelse(etm3_cal$S < Scut, "Y", "N")) ## calibration data from 204 Woredas
+Sval <- as.factor(ifelse(etm3_val$S < Scut, "Y", "N")) ## validation data for 51 randomly selected Woredas
+
+# Ca-test
+# Cacut <- 20
+# Cacal <- as.factor(ifelse(etm3_cal$Ca < Cacut, "Y", "N")) 
+# Caval <- as.factor(ifelse(etm3_val$Ca < Cacut, "Y", "N")) 
+# 
+# Mg-test
+# Mgcut <- 20
+# Mgcal <- as.factor(ifelse(etm3_cal$Mg < Mgcut, "Y", "N")) 
+# Mgval <- as.factor(ifelse(etm3_val$Mg < Mgcut, "Y", "N"))
+
+# Cu-test
+Cucut <- 0.9
+Cucal <- as.factor(ifelse(etm3_cal$Cu < Cucut, "Y", "N")) 
+Cuval <- as.factor(ifelse(etm3_val$Cu < Cucut, "Y", "N"))
+
+# Zn-test
+Zncut <- 1.5
+Zncal <- as.factor(ifelse(etm3_cal$Zn < Zncut, "Y", "N")) 
+Znval <- as.factor(ifelse(etm3_val$Zn < Zncut, "Y", "N"))
+
+# Mn-test
+# Mncut <- 100
+# Mncal <- as.factor(ifelse(etm3_cal$Mn < Mncut, "Y", "N")) 
+# Mnval <- as.factor(ifelse(etm3_val$Mn < Mncut, "Y", "N"))
+
+# Fe-test
+Fecut <- 80
+Fecal <- as.factor(ifelse(etm3_cal$Fe < Fecut, "Y", "N")) 
+Feval <- as.factor(ifelse(etm3_val$Fe < Fecut, "Y", "N"))
+
+# N-test
+Ncut <- 1500
+Ncal <- as.factor(ifelse(etm3_cal$N < Ncut, "Y", "N")) 
+Nval <- as.factor(ifelse(etm3_val$N < Ncut, "Y", "N"))
+
+# Gridded covariates
+GRIDSc <- etm3_cal[c(32:67)] ## gridded covariates for model calibration from 204 Woredas
+GRIDSv <- etm3_val[c(32:67)] ## same for 51 randomly selected validation Woredas
+
+# Model calibration -------------------------------------------------------
+# Start foreach to parallelize model fitting
+mc <- makeCluster(detectCores())
+registerDoParallel(mc)
+
+# Control setup
+set.seed(1385321)
+tc <- trainControl(method = "repeatedcv", number = 10, repeats = 5, allowParallel = TRUE)
+
+# P-test
+B.glm <- train(GRIDSc, Bcal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# P-test
+P.glm <- train(GRIDSc, Pcal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# K-test
+K.glm <- train(GRIDSc, Kcal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# S-test
+S.glm <- train(GRIDSc, Scal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+# Cu-test
+Cu.glm <- train(GRIDSc, Cucal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# Zn-test
+Zn.glm <- train(GRIDSc, Zncal, method = "glmnet", 
+               preProc = c("center", "scale"),
+               trControl = tc)
+
+# # Mn-test
+# Mn.glm <- train(GRIDSc, Mncal, method = "glmnet", 
+#                preProc = c("center", "scale"),
+#                trControl = tc)
+# Fe-test
+Fe.glm <- train(GRIDSc, Fecal, method = "glmnet", 
+                preProc = c("center", "scale"),
+                trControl = tc)
+
+# N-test
+N.glm <- train(GRIDSc, Ncal, method = "glmnet", 
+                preProc = c("center", "scale"),
+                trControl = tc)
+# Stop parallelize
+stopCluster(mc)
+
+
+# Model validation --------------------------------------------------------
+# B-test
+B_pred <- predict(B.glm, GRIDSv, type = 'prob')
+B_test <- cbind(Bval, B_pred)
+B_tpos <- subset(B_test, Bval=="Y", select=c(Y))
+B_tneg <- subset(B_test, Bval=="N", select=c(Y))
+B_eval <- evaluate(p=B_tpos[,1], a=B_tneg[,1]) 
+plot(B_eval, 'ROC') 
+B_thld <- threshold(B_eval, 'spec_sens') 
+
+# P-test
+P_pred <- predict(P.glm, GRIDSv, type = 'prob')
+P_test <- cbind(Pval, P_pred)
+P_tpos <- subset(P_test, Pval=="Y", select=c(Y))
+P_tneg <- subset(P_test, Pval=="N", select=c(Y))
+P_eval <- evaluate(p=P_tpos[,1], a=P_tneg[,1]) ## calculate ROC's on test set <dismo>
+plot(P_eval, 'ROC') ## plot ROC curve
+P_thld <- threshold(P_eval, 'spec_sens') ## TPR+TNR threshold for classification
+
+# K-test
+K_pred <- predict(K.glm, GRIDSv, type = 'prob')
+K_test <- cbind(Kval, K_pred)
+K_tpos <- subset(K_test, Kval=="Y", select=c(Y))
+K_tneg <- subset(K_test, Kval=="N", select=c(Y))
+K_eval <- evaluate(p=K_tpos[,1], a=K_tneg[,1]) ## calculate ROC's on test set <dismo>
+plot(K_eval, 'ROC') ## plot ROC curve
+K_thld <- threshold(K_eval, 'spec_sens') ## TPR+TNR threshold for classification
+
+# S-test
+S_pred <- predict(S.glm, GRIDSv, type = 'prob')
+S_test <- cbind(Sval, S_pred)
+S_tpos <- subset(S_test, Sval=="Y", select=c(Y))
+S_tneg <- subset(S_test, Sval=="N", select=c(Y))
+S_eval <- evaluate(p=S_tpos[,1], a=S_tneg[,1]) 
+plot(S_eval, 'ROC') 
+S_thld <- threshold(S_eval, 'spec_sens')
+
+# Cu-test
+Cu_pred <- predict(Cu.glm, GRIDSv, type = 'prob')
+Cu_test <- cbind(Cuval, Cu_pred)
+Cu_tpos <- subset(Cu_test, Cuval=="Y", select=c(Y))
+Cu_tneg <- subset(Cu_test, Cuval=="N", select=c(Y))
+Cu_eval <- evaluate(p=Cu_tpos[,1], a=Cu_tneg[,1]) 
+plot(Cu_eval, 'ROC') 
+Cu_thld <- threshold(Cu_eval, 'spec_sens')
+
+# Zn-test
+Zn_pred <- predict(Zn.glm, GRIDSv, type = 'prob')
+Zn_test <- cbind(Znval, Zn_pred)
+Zn_tpos <- subset(Zn_test, Znval=="Y", select=c(Y))
+Zn_tneg <- subset(Zn_test, Znval=="N", select=c(Y))
+Zn_eval <- evaluate(p=Zn_tpos[,1], a=Zn_tneg[,1]) 
+plot(Zn_eval, 'ROC') 
+Zn_thld <- threshold(Zn_eval, 'spec_sens')
+
+# Mn-test
+# Mn_pred <- predict(Mn.glm, GRIDSv, type = 'prob')
+# Mn_test <- cbind(Mnval, Mn_pred)
+# Mn_tpos <- subset(Mn_test, Mnval=="Y", select=c(Y))
+# Mn_tneg <- subset(Mn_test, Mnval=="N", select=c(Y))
+# Mn_eval <- evaluate(p=Mn_tpos[,1], a=Mn_tneg[,1]) 
+# plot(Mn_eval, 'ROC') 
+# Mn_thld <- threshold(Mn_eval, 'spec_sens')
+
+# Fe-test
+Fe_pred <- predict(Fe.glm, GRIDSv, type = 'prob')
+Fe_test <- cbind(Feval, Fe_pred)
+Fe_tpos <- subset(Fe_test, Feval=="Y", select=c(Y))
+Fe_tneg <- subset(Fe_test, Feval=="N", select=c(Y))
+Fe_eval <- evaluate(p=Fe_tpos[,1], a=Fe_tneg[,1]) 
+plot(Fe_eval, 'ROC') 
+Fe_thld <- threshold(Fe_eval, 'spec_sens')
+
+# N-test
+N_pred <- predict(N.glm, GRIDSv, type = 'prob')
+N_test <- cbind(Nval, N_pred)
+N_tpos <- subset(N_test, Nval=="Y", select=c(Y))
+N_tneg <- subset(N_test, Nval=="N", select=c(Y))
+N_eval <- evaluate(p=N_tpos[,1], a=N_tneg[,1]) 
+plot(N_eval, 'ROC') 
+N_thld <- threshold(N_eval, 'spec_sens')
+
+# Spatial predictions -----------------------------------------------------
+B_prob <- predict(grids, B.glm, type = 'prob')
+B_mask <- 1-B_prob > B_thld
+P_prob <- predict(grids, P.glm, type = 'prob')
+P_mask <- 1-P_prob > P_thld
+K_prob <- predict(grids, K.glm, type = 'prob')
+K_mask <- 1-K_prob > K_thld
+S_prob <- predict(grids, S.glm, type = 'prob')
+S_mask <- 1-S_prob > S_thld
+Cu_prob <- predict(grids, Cu.glm, type = 'prob')
+Cu_mask <- 1-Cu_prob > Cu_thld
+Zn_prob <- predict(grids, Zn.glm, type = 'prob')
+Zn_mask <- 1-Zn_prob > Zn_thld
+# Mn_prob <- predict(grids, Mn.glm, type = 'prob')
+# Mn_mask <- 1-Mn_prob > Mn_thld
+Fe_prob <- predict(grids, Fe.glm, type = 'prob')
+Fe_mask <- 1-Fe_prob > Fe_thld
+N_prob <- predict(grids, N.glm, type = 'prob')
+N_mask <- 1-N_prob > N_thld
+
+# crit_pred <- stack(1-B_prob,1-P_prob, 1-K_prob, 1-S_prob, 1-Cu_prob, 1-Zn_prob, 1-Mn_prob, 1-Fe_prob)
+# crit_mask <- stack(B_mask,P_mask, K_mask, S_mask,Cu_mask,Zn_mask, Mn_mask, Fe_mask)
+# names(crit_pred) <- c("B_prob","P_prob","K_prob","S_prob","Cu_prob","Zn_prob","Mn_prob","Fe_prob")
+# names(crit_mask) <- c("B_mask","P_mask","K_mask","S_mask","Cu_mask","Zn_mask", "Mn_mask", "Fe_mask")
+# plot(Fe_prob, axes = F)
+# plot(Fe_mask, legend = F, axes = F)
+
+# Export Gtif's -----------------------------------------------------------
+# Create a "Results" folder in current working directory
+#dir.create("ETM3_results", showWarnings=F)
+
+# Export Gtif's to "./ETM3_results"
+writeRaster(Cu_prob, filename="./Map_results/Revised/Critical/Cu2_crit_pred.tif", datatype="FLT4S", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(Cu_mask, filename="./Map_results/Revised/Critical/Cu2_crit_mask.tif", datatype="INT1U", options="INTERLEAVE=BAND", overwrite=T)
